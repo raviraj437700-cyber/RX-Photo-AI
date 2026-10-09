@@ -20,7 +20,7 @@ main{max-width:960px;margin:auto;padding:26px 16px 40px}.brand{font-weight:900;l
 <div class="preview"><figure><figcaption>ORIGINAL</figcaption><div class="imagebox"><div id="beforeEmpty" class="placeholder">Your original image appears here</div><img id="before" alt="Original image" hidden></div></figure><figure><figcaption>ENHANCED PREVIEW</figcaption><div class="imagebox"><div id="afterEmpty" class="placeholder">Your result appears here</div><img id="after" alt="Enhanced image" hidden></div></figure></div>
 <div class="actions"><button id="enhance" class="primary" disabled>✨ Enhance image</button><button id="save" disabled>↓ Save result</button></div>
 <div class="status" id="status" role="status">Choose a photo to begin.</div>
-<p class="note">Privacy: images are processed in your browser and are not uploaded by this demo. This version applies image-processing filters, not a generative AI model. It cannot recreate missing facial details or guarantee perfect text recovery.</p>
+<p class="note">Privacy: images are processed in your browser and are not uploaded by this demo. AI mode uses an ESRGAN neural-network model to upscale images 2× in your browser. Thumbnail mode adds stronger finishing adjustments. Results depend on the original image; this is not a guarantee of Remini-level face restoration.</p>
 </section><footer>Created by Ravi · RX Photo AI</footer></main>
 <script>
 (()=> {
@@ -35,23 +35,64 @@ if(f.size>20*1024*1024){status.textContent='This demo supports images up to 20 M
 if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(f);
 const img=new Image();img.onload=()=>{original=img;before.src=objectUrl;before.hidden=false;document.getElementById('beforeEmpty').hidden=true;enhance.disabled=false;after.hidden=true;document.getElementById('afterEmpty').hidden=false;save.disabled=true;if(resultUrl){URL.revokeObjectURL(resultUrl);resultUrl=null;}status.textContent='Image loaded ('+img.naturalWidth+' × '+img.naturalHeight+').';};img.onerror=()=>status.textContent='Could not read this image. Try another file.';img.src=objectUrl;
 });
-function enhanceImage(){
-if(!original)return;
-enhance.disabled=true;save.disabled=true;status.textContent='Enhancing image…';
-setTimeout(()=>{
-try{
-const maxSide=2600,scale=Math.min(1,maxSide/Math.max(original.naturalWidth,original.naturalHeight));
-const w=Math.max(1,Math.round(original.naturalWidth*scale)),h=Math.max(1,Math.round(original.naturalHeight*scale));
-const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(original,0,0,w,h);
-const image=ctx.getImageData(0,0,w,h),src=new Uint8ClampedArray(image.data),dst=image.data;
-const contrast=mode==='thumb'?1.17:1.06,saturation=mode==='thumb'?1.18:1.04,sharp=mode==='thumb'?.62:.3;
-for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;const l=(y*w+Math.max(0,x-1))*4,r=(y*w+Math.min(w-1,x+1))*4,u=(Math.max(0,y-1)*w+x)*4,d=(Math.min(h-1,y+1)*w+x)*4;
-for(let c=0;c<3;c++){const blur=(src[l+c]+src[r+c]+src[u+c]+src[d+c])/4;dst[i+c]=Math.max(0,Math.min(255,(src[i+c]+(src[i+c]-blur)*sharp-128)*contrast+128));}
-const gray=.299*dst[i]+.587*dst[i+1]+.114*dst[i+2];for(let c=0;c<3;c++)dst[i+c]=Math.max(0,Math.min(255,gray+(dst[i+c]-gray)*saturation));
+let upscalerInstance=null, modelLoadPromise=null;
+async function loadAIModel(){
+  if(upscalerInstance)return upscalerInstance;
+  if(modelLoadPromise)return modelLoadPromise;
+  modelLoadPromise=(async()=>{
+    status.textContent='Loading AI engine and neural-network model… first use may take a little time.';
+    const loadScript=(src)=>new Promise((resolve,reject)=>{
+      const existing=[...document.scripts].find(s=>s.src===src);
+      if(existing){if(existing.dataset.loaded==='yes'){resolve();return;}existing.addEventListener('load',resolve,{once:true});existing.addEventListener('error',()=>reject(new Error('Could not load AI library')), {once:true});return;}
+      const s=document.createElement('script');s.src=src;s.async=true;s.onload=()=>{s.dataset.loaded='yes';resolve();};s.onerror=()=>reject(new Error('Could not load AI model files. Check your internet connection and retry.'));document.head.appendChild(s);
+    });
+    await loadScript('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0/dist/umd/2x.min.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/upscaler@1.0.0/dist/browser/umd/upscaler.min.js');
+    if(!window.tf||!window.Upscaler||!window.ESRGANSlim2x)throw new Error('AI model did not initialize. Refresh and try again.');
+    upscalerInstance=new window.Upscaler({model:window.ESRGANSlim2x});
+    return upscalerInstance;
+  })().catch(err=>{modelLoadPromise=null;throw err;});
+  return modelLoadPromise;
 }
-ctx.putImageData(image,0,0);canvas.toBlob(blob=>{if(!blob){status.textContent='Could not create result. Try a smaller image.';enhance.disabled=false;return;}if(resultUrl)URL.revokeObjectURL(resultUrl);resultUrl=URL.createObjectURL(blob);after.src=resultUrl;after.hidden=false;document.getElementById('afterEmpty').hidden=true;save.disabled=false;enhance.disabled=false;status.textContent='Done. Preview the result and save it if you like.';},'image/jpeg',.94);
-}catch(e){status.textContent='Enhancement failed. Try a smaller image or another browser.';enhance.disabled=false;}
-},30);
+async function enhanceImage(){
+  if(!original)return;
+  enhance.disabled=true;save.disabled=true;status.textContent='Preparing AI enhancement…';
+  try{
+    const ai=await loadAIModel();
+    status.textContent='AI neural network is enhancing the image. Please keep this tab open…';
+    // Keep inference manageable on phones; the model produces a true 2× neural upscaling result.
+    const maxInputSide=1600, scale=Math.min(1,maxInputSide/Math.max(original.naturalWidth,original.naturalHeight));
+    let input=original;
+    if(scale<1){
+      const inputCanvas=document.createElement('canvas');
+      inputCanvas.width=Math.max(1,Math.round(original.naturalWidth*scale));
+      inputCanvas.height=Math.max(1,Math.round(original.naturalHeight*scale));
+      inputCanvas.getContext('2d').drawImage(original,0,0,inputCanvas.width,inputCanvas.height);
+      input=inputCanvas;
+    }
+    const aiResult=await ai.upscale(input,{patchSize:64,padding:5});
+    const aiImage=new Image();
+    await new Promise((resolve,reject)=>{aiImage.onload=resolve;aiImage.onerror=()=>reject(new Error('AI result could not be decoded.'));aiImage.src=aiResult;});
+    const canvas=document.createElement('canvas');canvas.width=aiImage.naturalWidth;canvas.height=aiImage.naturalHeight;
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(aiImage,0,0);
+    if(mode==='thumb'){
+      const image=ctx.getImageData(0,0,canvas.width,canvas.height),src=new Uint8ClampedArray(image.data),dst=image.data,w=canvas.width,h=canvas.height;
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+        const i=(y*w+x)*4,l=(y*w+Math.max(0,x-1))*4,r=(y*w+Math.min(w-1,x+1))*4,u=(Math.max(0,y-1)*w+x)*4,d=(Math.min(h-1,y+1)*w+x)*4;
+        for(let c=0;c<3;c++){const blur=(src[l+c]+src[r+c]+src[u+c]+src[d+c])/4;dst[i+c]=Math.max(0,Math.min(255,(src[i+c]+(src[i+c]-blur)*.32-128)*1.12+128));}
+        const gray=.299*dst[i]+.587*dst[i+1]+.114*dst[i+2];for(let c=0;c<3;c++)dst[i+c]=Math.max(0,Math.min(255,gray+(dst[i+c]-gray)*1.12));
+      }
+      ctx.putImageData(image,0,0);
+    }
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.95));
+    if(!blob)throw new Error('Could not create the enhanced image. Try a smaller photo.');
+    if(resultUrl)URL.revokeObjectURL(resultUrl);resultUrl=URL.createObjectURL(blob);
+    after.src=resultUrl;after.hidden=false;document.getElementById('afterEmpty').hidden=true;save.disabled=false;
+    status.textContent='AI enhancement complete · '+canvas.width+' × '+canvas.height+' pixels · 2× neural upscaling.';
+  }catch(e){
+    status.textContent=(e&&e.message)?e.message:'AI enhancement failed. Check your connection and try again.';
+  }finally{enhance.disabled=false;}
 }
 enhance.addEventListener('click',enhanceImage);
 save.addEventListener('click',()=>{if(!resultUrl)return;const a=document.createElement('a');a.href=resultUrl;a.download='RX-Photo-AI-'+Date.now()+'.jpg';document.body.appendChild(a);a.click();a.remove();status.textContent='Download started. Check your Downloads folder.';});
