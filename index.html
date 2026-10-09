@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1020"><title>RX Photo AI</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#141c31;--muted:#aab5d0;--accent:#7c6cff;--cyan:#36d8e8}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#202958 0,var(--bg) 55%);color:#f7f8ff;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;min-height:100vh}
+main{max-width:960px;margin:auto;padding:26px 16px 40px}.brand{font-weight:900;letter-spacing:.14em;font-size:14px;color:#b9c5ff}.hero{text-align:center;padding:22px 0 24px}.hero h1{font-size:clamp(32px,7vw,54px);line-height:1.05;margin:12px 0;background:linear-gradient(90deg,#fff,#a5a1ff,#61e7ef);background-clip:text;color:transparent}.hero p{color:var(--muted);margin:0 auto;max-width:540px;line-height:1.6}.panel{background:#111a2ddd;border:1px solid #344061;border-radius:22px;padding:18px;box-shadow:0 20px 70px #0004}.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}.tab,button{border:1px solid #424d76;border-radius:13px;padding:13px 10px;font-weight:750;color:#e9ebff;background:#202945;cursor:pointer}.tab.active,button.primary{background:linear-gradient(110deg,#6859f5,#328cda);border-color:transparent}.upload{display:flex;align-items:center;justify-content:center;text-align:center;min-height:170px;border:1.5px dashed #56638e;border-radius:17px;background:#0d1428;cursor:pointer;padding:20px}.upload strong{display:block;font-size:17px;margin-bottom:8px}.upload small{color:var(--muted)}input[type=file]{display:none}.preview{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:15px}.preview figure{margin:0;min-width:0}.preview figcaption{font-size:12px;color:var(--muted);margin:0 0 7px}.imagebox{height:clamp(150px,42vw,320px);background:#0a1020;border:1px solid #303a5a;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center}.imagebox img{width:100%;height:100%;object-fit:contain}.placeholder{color:#64708f;font-size:13px;text-align:center;padding:12px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}button:disabled{opacity:.4;cursor:not-allowed}.status{color:var(--muted);font-size:13px;line-height:1.5;min-height:20px;margin:12px 2px 0}.note{font-size:12px;color:#94a2c6;line-height:1.6;margin:16px 3px 0}footer{text-align:center;color:#7785aa;font-size:12px;padding:22px}
+@media(max-width:480px){main{padding:18px 12px 28px}.panel{padding:12px;border-radius:18px}.tab{font-size:12px;padding:12px 5px}.actions{grid-template-columns:1fr}.hero{padding-top:18px}}
+</style>
+</head>
+<body><main>
+<div class="brand">✦ RX PHOTO AI</div>
+<header class="hero"><h1>Bring your image<br>back to life.</h1><p>Photo clarity and thumbnail enhancement in one simple workspace.</p></header>
+<section class="panel">
+<div class="tabs" role="tablist"><button class="tab active" id="photoTab" type="button">📷 Photo Enhance</button><button class="tab" id="thumbTab" type="button">🎨 Thumbnail Enhance</button></div>
+<label class="upload" for="file"><span><strong>＋ Choose an image</strong><small>JPG, PNG or WebP · processed on your device</small></span></label>
+<input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/*">
+<div class="preview"><figure><figcaption>ORIGINAL</figcaption><div class="imagebox"><div id="beforeEmpty" class="placeholder">Your original image appears here</div><img id="before" alt="Original image" hidden></div></figure><figure><figcaption>ENHANCED PREVIEW</figcaption><div class="imagebox"><div id="afterEmpty" class="placeholder">Your result appears here</div><img id="after" alt="Enhanced image" hidden></div></figure></div>
+<div class="actions"><button id="enhance" class="primary" disabled>✨ Enhance image</button><button id="save" disabled>↓ Save result</button></div>
+<div class="status" id="status" role="status">Choose a photo to begin.</div>
+<p class="note">Privacy: images are processed in your browser and are not uploaded by this demo. This version applies image-processing filters, not a generative AI model. It cannot recreate missing facial details or guarantee perfect text recovery.</p>
+</section><footer>Created by Ravi · RX Photo AI</footer></main>
+<script>
+(()=> {
+const file=document.getElementById('file'), before=document.getElementById('before'), after=document.getElementById('after'), enhance=document.getElementById('enhance'), save=document.getElementById('save'), status=document.getElementById('status'), photoTab=document.getElementById('photoTab'), thumbTab=document.getElementById('thumbTab');
+let mode='photo', original=null, resultUrl=null, objectUrl=null;
+function setMode(next){mode=next;photoTab.classList.toggle('active',mode==='photo');thumbTab.classList.toggle('active',mode==='thumb');status.textContent=mode==='photo'?'Photo mode: gentler clarity and colour adjustments.':'Thumbnail mode: stronger sharpness, contrast and saturation.';if(original) enhanceImage();}
+photoTab.addEventListener('click',()=>setMode('photo'));thumbTab.addEventListener('click',()=>setMode('thumb'));
+file.addEventListener('change',()=>{
+const f=file.files&&file.files[0];if(!f)return;
+if(!f.type.startsWith('image/')){status.textContent='Please choose a valid image file.';return;}
+if(f.size>20*1024*1024){status.textContent='This demo supports images up to 20 MB. Choose a smaller file.';file.value='';return;}
+if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl=URL.createObjectURL(f);
+const img=new Image();img.onload=()=>{original=img;before.src=objectUrl;before.hidden=false;document.getElementById('beforeEmpty').hidden=true;enhance.disabled=false;after.hidden=true;document.getElementById('afterEmpty').hidden=false;save.disabled=true;if(resultUrl){URL.revokeObjectURL(resultUrl);resultUrl=null;}status.textContent='Image loaded ('+img.naturalWidth+' × '+img.naturalHeight+').';};img.onerror=()=>status.textContent='Could not read this image. Try another file.';img.src=objectUrl;
+});
+function enhanceImage(){
+if(!original)return;
+enhance.disabled=true;save.disabled=true;status.textContent='Enhancing image…';
+setTimeout(()=>{
+try{
+const maxSide=2600,scale=Math.min(1,maxSide/Math.max(original.naturalWidth,original.naturalHeight));
+const w=Math.max(1,Math.round(original.naturalWidth*scale)),h=Math.max(1,Math.round(original.naturalHeight*scale));
+const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(original,0,0,w,h);
+const image=ctx.getImageData(0,0,w,h),src=new Uint8ClampedArray(image.data),dst=image.data;
+const contrast=mode==='thumb'?1.17:1.06,saturation=mode==='thumb'?1.18:1.04,sharp=mode==='thumb'?.62:.3;
+for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=(y*w+x)*4;const l=(y*w+Math.max(0,x-1))*4,r=(y*w+Math.min(w-1,x+1))*4,u=(Math.max(0,y-1)*w+x)*4,d=(Math.min(h-1,y+1)*w+x)*4;
+for(let c=0;c<3;c++){const blur=(src[l+c]+src[r+c]+src[u+c]+src[d+c])/4;dst[i+c]=Math.max(0,Math.min(255,(src[i+c]+(src[i+c]-blur)*sharp-128)*contrast+128));}
+const gray=.299*dst[i]+.587*dst[i+1]+.114*dst[i+2];for(let c=0;c<3;c++)dst[i+c]=Math.max(0,Math.min(255,gray+(dst[i+c]-gray)*saturation));
+}
+ctx.putImageData(image,0,0);canvas.toBlob(blob=>{if(!blob){status.textContent='Could not create result. Try a smaller image.';enhance.disabled=false;return;}if(resultUrl)URL.revokeObjectURL(resultUrl);resultUrl=URL.createObjectURL(blob);after.src=resultUrl;after.hidden=false;document.getElementById('afterEmpty').hidden=true;save.disabled=false;enhance.disabled=false;status.textContent='Done. Preview the result and save it if you like.';},'image/jpeg',.94);
+}catch(e){status.textContent='Enhancement failed. Try a smaller image or another browser.';enhance.disabled=false;}
+},30);
+}
+enhance.addEventListener('click',enhanceImage);
+save.addEventListener('click',()=>{if(!resultUrl)return;const a=document.createElement('a');a.href=resultUrl;a.download='RX-Photo-AI-'+Date.now()+'.jpg';document.body.appendChild(a);a.click();a.remove();status.textContent='Download started. Check your Downloads folder.';});
+})();
+</script></body></html>
